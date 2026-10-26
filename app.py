@@ -144,7 +144,7 @@ def _tag_buttons(textbox: gr.Textbox, elem_id: str) -> None:
 
 def _gen_settings(show_voice_lock: bool):
     with gr.Accordion("Generation Settings (optional)", open=False):
-        fmt = gr.Radio(["MP3", "WAV"], value="MP3", label="Output Format")
+        fmt = gr.Radio(["WAV", "MP3"], value="WAV", label="Output Format")
         temp = gr.Slider(0.5, 2.0, value=DEFAULTS.temperature, step=0.05, label="Temperature",
                          info="Lower = steadier delivery, higher = more expressive. 1.7 is recommended.")
         top_p = gr.Slider(0.1, 1.0, value=DEFAULTS.top_p, step=0.05, label="Top-p")
