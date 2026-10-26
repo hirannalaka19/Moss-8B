@@ -31,6 +31,7 @@ from .planning import (
     max_new_tokens_for,
 )
 from .text_chunker import Chunk, chunk_narration
+from .voice_cleaner import ReferenceCleaner
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +64,13 @@ def _configure_torch_backends(torch) -> None:
 
 
 class MossNarrator:
-    def __init__(self, model, processor, sample_rate: int) -> None:
+    def __init__(self, model, processor, sample_rate: int, reference_cleaner: ReferenceCleaner | None = None) -> None:
         self._model = model
         self._processor = processor
         self.sample_rate = sample_rate
+        self._reference_cleaner = reference_cleaner or ReferenceCleaner()
+        # The UI previews the cleaned sample on upload; keep it so Generate doesn't clean it twice.
+        self._last_reference: tuple[tuple[str, bool], np.ndarray, str | None] | None = None
 
     @classmethod
     def load(cls, model_id: str = MODEL_ID) -> "MossNarrator":
@@ -150,13 +154,25 @@ class MossNarrator:
             raise NoAudioError(f"MOSS-TTS returned no audio for: {text[:80]!r}")
         return best, f"Kept best of {settings.max_retries + 1} attempts (timing looked off) for: {text[:60]!r}"
 
-    def _load_reference(self, path: str | Path) -> tuple[object, str | None]:
+    def prepare_reference(self, path: str | Path, clean: bool = True) -> tuple[np.ndarray, str | None]:
+        """Load a voice sample, cap it at REFERENCE_MAX_S and optionally strip its background.
+        Returns the waveform the model will copy, plus a note when the sample was shortened."""
+        key = (str(path), clean)
+        if self._last_reference and self._last_reference[0] == key:
+            return self._last_reference[1], self._last_reference[2]
         wav = load_audio_mono(path, self.sample_rate)
         clipped = cut_at_quiet(wav, self.sample_rate, REFERENCE_MAX_S)
         note = None
         if len(clipped) < len(wav):
             note = f"Voice sample is {len(wav) / self.sample_rate:.0f}s; using the first {len(clipped) / self.sample_rate:.0f}s."
-        return self.encode_reference(clipped), note
+        if clean:
+            clipped = self._reference_cleaner.clean(clipped, self.sample_rate)
+        self._last_reference = (key, clipped, note)
+        return clipped, note
+
+    def _load_reference(self, path: str | Path, clean: bool) -> tuple[object, str | None]:
+        wav, note = self.prepare_reference(path, clean)
+        return self.encode_reference(wav), note
 
     def narrate(
         self,
@@ -179,7 +195,9 @@ class MossNarrator:
 
             torch.manual_seed(settings.seed)
         lang = language_tag(language)
-        reference_codes, note = self._load_reference(reference_audio) if reference_audio else (None, None)
+        reference_codes, note = (
+            self._load_reference(reference_audio, settings.clean_reference) if reference_audio else (None, None)
+        )
         warnings = [note] if note else []
 
         rendered, complete = self._render_chunks(chunks, reference_codes, lang, settings, on_progress, warnings)

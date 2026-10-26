@@ -8,3 +8,4 @@ tiktoken>=0.12.0
 orjson>=3.11.4
 gradio==5.50.0
 noisereduce==3.0.3
+demucs==4.1.0

@@ -22,11 +22,21 @@ def speech(seconds: float) -> np.ndarray:
     return (0.3 * np.sin(2 * np.pi * 180 * t)).astype(np.float32)
 
 
+class FakeCleaner:
+    def __init__(self):
+        self.calls = 0
+
+    def clean(self, wav, sample_rate):
+        self.calls += 1
+        return wav * 0.5
+
+
 class FakeNarrator(MossNarrator):
     """Plays back scripted durations (multiples of the expected length) per call."""
 
     def __init__(self, length_factors=None):
-        super().__init__(model=None, processor=None, sample_rate=SR)
+        self.cleaner = FakeCleaner()
+        super().__init__(model=None, processor=None, sample_rate=SR, reference_cleaner=self.cleaner)
         self.length_factors = list(length_factors or [])
         self.calls = []
         self.encoded = []
@@ -174,3 +184,29 @@ def test_denoise_runs_once_on_the_stitched_narration(no_real_denoise):
 def test_denoise_can_be_switched_off(no_real_denoise):
     FakeNarrator().narrate(TEXT, settings=NarrationSettings(denoise=False))
     assert no_real_denoise == []
+
+
+def test_reference_background_is_removed_by_default(monkeypatch):
+    monkeypatch.setattr("moss_narrator.engine.load_audio_mono", lambda path, sr: speech(3.0))
+    narrator = FakeNarrator()
+    narrator.narrate(TEXT, reference_audio="voice.wav")
+    assert narrator.cleaner.calls == 1
+
+
+def test_reference_cleanup_can_be_switched_off(monkeypatch):
+    monkeypatch.setattr("moss_narrator.engine.load_audio_mono", lambda path, sr: speech(3.0))
+    narrator = FakeNarrator()
+    narrator.narrate(TEXT, reference_audio="voice.wav", settings=NarrationSettings(clean_reference=False))
+    assert narrator.cleaner.calls == 0
+
+
+def test_previewed_reference_is_reused_by_generate(monkeypatch):
+    loads = []
+    monkeypatch.setattr("moss_narrator.engine.load_audio_mono", lambda path, sr: loads.append(path) or speech(3.0))
+    narrator = FakeNarrator()
+    preview, _ = narrator.prepare_reference("voice.wav", clean=True)
+    narrator.narrate(TEXT, reference_audio="voice.wav")
+    assert loads == ["voice.wav"] and narrator.cleaner.calls == 1
+    assert np.allclose(preview, speech(3.0) * 0.5)
+    narrator.prepare_reference("other.wav", clean=True)
+    assert loads == ["voice.wav", "other.wav"]

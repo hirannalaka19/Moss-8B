@@ -100,7 +100,7 @@ def _status_line(result, seed: int, elapsed_s: float) -> str:
 
 
 def make_generate_fn(narrator: MossNarrator, clone: bool):
-    def generate(text, language, ref_audio, out_format, denoise, temperature, top_p, top_k,
+    def generate(text, language, ref_audio, clean_ref, out_format, denoise, temperature, top_p, top_k,
                  repetition_penalty, seed, chunk_chars, sentence_pause, paragraph_pause,
                  voice_lock, progress=gr.Progress()):
         if not text or not text.strip():
@@ -113,6 +113,7 @@ def make_generate_fn(narrator: MossNarrator, clone: bool):
             paragraph_gap_s=float(paragraph_pause), temperature=float(temperature),
             top_p=float(top_p), top_k=int(top_k), repetition_penalty=float(repetition_penalty),
             voice_lock=bool(voice_lock), seed=used_seed, denoise=bool(denoise),
+            clean_reference=bool(clean_ref),
         )
 
         def on_progress(done: int, total: int, _chunk: str) -> None:
@@ -174,6 +175,35 @@ def _output_column():
     return audio, status, file
 
 
+def make_preview_fn(narrator: MossNarrator):
+    """Show the reference exactly as the model will hear it (background removed, capped length)."""
+
+    def preview(ref_audio, clean_ref):
+        if not ref_audio or not clean_ref:
+            return None
+        try:
+            wav, _ = narrator.prepare_reference(ref_audio, clean=True)
+        except Exception as error:  # a bad upload should not break the page
+            logging.exception("Reference cleanup failed")
+            raise gr.Error(f"Could not clean the reference audio: {error}")
+        return str(save_audio(wav, narrator.sample_rate, OUTPUT_DIR / f"reference_clean_{uuid.uuid4().hex[:8]}.wav"))
+
+    return preview
+
+
+def _reference_inputs(narrator: MossNarrator, visible: bool):
+    ref = gr.Audio(label="Reference Audio (5–30 seconds of speech)", type="filepath",
+                   elem_classes="compact-audio", visible=visible)
+    clean = gr.Checkbox(value=DEFAULTS.clean_reference, visible=visible, label="Remove background from reference audio",
+                        info="Strips music, noise, hum and room sound so the clone copies only the voice.")
+    cleaned = gr.Audio(label="Cleaned reference (what the model will copy)", type="filepath",
+                       elem_classes="compact-audio", interactive=False, visible=visible)
+    preview = make_preview_fn(narrator)
+    ref.change(preview, inputs=[ref, clean], outputs=cleaned)
+    clean.change(preview, inputs=[ref, clean], outputs=cleaned)
+    return ref, clean
+
+
 def _tab(narrator: MossNarrator, name: str, clone: bool) -> None:
     elem_id = f"{name}_textbox"
     with gr.TabItem("Voice Clone" if clone else "Auto Voice"):
@@ -183,12 +213,11 @@ def _tab(narrator: MossNarrator, name: str, clone: bool) -> None:
                                   placeholder="Paste your full narration here. Blank lines between paragraphs become longer pauses.")
                 _tag_buttons(text, elem_id)
                 lang = _lang_dropdown()
-                ref = gr.Audio(label="Reference Audio (5–30 seconds of clean speech)", type="filepath",
-                               elem_classes="compact-audio", visible=clone)
+                ref, clean = _reference_inputs(narrator, visible=clone)
                 btn = gr.Button("Generate", variant="primary")
                 settings = _gen_settings(show_voice_lock=not clone)
             audio, status, file = _output_column()
-        btn.click(make_generate_fn(narrator, clone), inputs=[text, lang, ref, *settings],
+        btn.click(make_generate_fn(narrator, clone), inputs=[text, lang, ref, clean, *settings],
                   outputs=[audio, status, file])
 
 
