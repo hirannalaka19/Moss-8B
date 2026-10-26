@@ -49,7 +49,6 @@ class NarrationSettings:
     voice_lock: bool = True
     voice_lock_max_s: float = 20.0
     seed: int | None = None
-    denoise: bool = True
 
 
 def estimate_audio_tokens(text: str) -> int:

@@ -100,7 +100,7 @@ def _status_line(result, seed: int, elapsed_s: float) -> str:
 
 
 def make_generate_fn(narrator: MossNarrator, clone: bool):
-    def generate(text, language, ref_audio, out_format, denoise, temperature, top_p, top_k,
+    def generate(text, language, ref_audio, out_format, temperature, top_p, top_k,
                  repetition_penalty, seed, chunk_chars, sentence_pause, paragraph_pause,
                  voice_lock, progress=gr.Progress()):
         if not text or not text.strip():
@@ -112,7 +112,7 @@ def make_generate_fn(narrator: MossNarrator, clone: bool):
             max_chunk_weight=int(chunk_chars), sentence_gap_s=float(sentence_pause),
             paragraph_gap_s=float(paragraph_pause), temperature=float(temperature),
             top_p=float(top_p), top_k=int(top_k), repetition_penalty=float(repetition_penalty),
-            voice_lock=bool(voice_lock), seed=used_seed, denoise=bool(denoise),
+            voice_lock=bool(voice_lock), seed=used_seed,
         )
 
         def on_progress(done: int, total: int, _chunk: str) -> None:
@@ -145,8 +145,6 @@ def _tag_buttons(textbox: gr.Textbox, elem_id: str) -> None:
 def _gen_settings(show_voice_lock: bool):
     with gr.Accordion("Generation Settings (optional)", open=False):
         fmt = gr.Radio(["MP3", "WAV"], value="MP3", label="Output Format")
-        dn = gr.Checkbox(label="Denoise", value=DEFAULTS.denoise,
-                         info="Removes the faint background rumble/buzz MOSS-TTS leaves in pauses.")
         temp = gr.Slider(0.5, 2.0, value=DEFAULTS.temperature, step=0.05, label="Temperature",
                          info="Lower = steadier delivery, higher = more expressive. 1.7 is recommended.")
         top_p = gr.Slider(0.1, 1.0, value=DEFAULTS.top_p, step=0.05, label="Top-p")
@@ -162,7 +160,7 @@ def _gen_settings(show_voice_lock: bool):
             p_pause = gr.Slider(0.0, 4.0, value=DEFAULTS.paragraph_gap_s, step=0.1, label="Pause between paragraphs (seconds)")
             lock = gr.Checkbox(value=DEFAULTS.voice_lock, visible=show_voice_lock, label="Keep the same voice for the whole script",
                                info="Reuses the voice of the first chunk for every following chunk.")
-    return [fmt, dn, temp, top_p, top_k, rep, seed, chunk, s_pause, p_pause, lock]
+    return [fmt, temp, top_p, top_k, rep, seed, chunk, s_pause, p_pause, lock]
 
 
 def _output_column():

@@ -12,13 +12,6 @@ import numpy as np
 FRAME_MS = 20
 EDGE_FADE_MS = 8
 PEAK_CEILING = 0.98
-# Below the lowest male voice fundamentals (~70 Hz); removes the model's low rumble.
-DENOISE_HIGHPASS_HZ = 60
-DENOISE_STRENGTH = 0.9
-# Pauses quieter than speech by this much, lasting this long, are used as the noise sample.
-NOISE_BELOW_SPEECH_DB = 30.0
-NOISE_MIN_PAUSE_MS = 150
-NOISE_PROFILE_MAX_S = 10
 
 
 def _require_ffmpeg() -> str:
@@ -78,44 +71,6 @@ def normalize_loudness(wav: np.ndarray, target_dbfs: float = -20.0, max_gain_db:
         return wav.copy()
     gain = min(10.0 ** (target_dbfs / 20.0) / rms, 10.0 ** (max_gain_db / 20.0))
     return (wav * gain).astype(np.float32)
-
-
-def quiet_passages(wav: np.ndarray, sample_rate: int) -> list[tuple[int, int]]:
-    """Sample ranges of the model's own pauses: well below speech level but not digital silence
-    (the gaps we insert between chunks are exact zeros and carry no noise information)."""
-    frame = max(1, sample_rate * FRAME_MS // 1000)
-    if len(wav) < frame:
-        return []
-    levels = _frame_db(wav, frame)
-    quiet = (levels > -90.0) & (levels < np.percentile(levels, 90) - NOISE_BELOW_SPEECH_DB)
-    min_frames = max(1, NOISE_MIN_PAUSE_MS // FRAME_MS)
-    runs, start = [], None
-    for index, is_quiet in enumerate(np.append(quiet, False)):
-        if is_quiet and start is None:
-            start = index
-        elif not is_quiet and start is not None:
-            if index - start >= min_frames:
-                runs.append((start * frame, index * frame))
-            start = None
-    return runs
-
-
-def denoise(wav: np.ndarray, sample_rate: int, strength: float = DENOISE_STRENGTH) -> np.ndarray:
-    """Remove MOSS-TTS's faint background rumble/buzz: 60 Hz high-pass, then spectral gating
-    with a noise profile taken from the narration's own pauses."""
-    import noisereduce
-    from scipy import signal
-
-    sos = signal.butter(2, DENOISE_HIGHPASS_HZ, "highpass", fs=sample_rate, output="sos")
-    filtered = signal.sosfiltfilt(sos, wav.astype(np.float64))
-    runs = quiet_passages(filtered, sample_rate)
-    noise = np.concatenate([filtered[a:b] for a, b in runs])[: NOISE_PROFILE_MAX_S * sample_rate] if runs else np.zeros(0)
-    if len(noise) < sample_rate // 2:  # under 0.5 s of pauses: no reliable noise profile
-        return filtered.astype(np.float32)
-    cleaned = noisereduce.reduce_noise(
-        y=filtered, sr=sample_rate, y_noise=noise, stationary=True, prop_decrease=strength
-    )
-    return np.asarray(cleaned, dtype=np.float32)
 
 
 def soft_limit(wav: np.ndarray, ceiling: float = PEAK_CEILING, knee: float = 0.8) -> np.ndarray:

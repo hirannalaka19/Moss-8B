@@ -30,7 +30,6 @@ Click the `[pause 0.5s]` … `[pause 3.0s]` buttons to insert a pause at the cur
 | Voice consistency | If you upload a voice sample, it is encoded once and used for every chunk. Without a sample, chunk 1 is generated in the model's own voice, and that voice is reused for every later chunk so the whole narration sounds like one speaker. |
 | Quality checks | If a chunk's length doesn't match its text (cut short, or running on), it is regenerated, up to 2 retries. |
 | Stitching | Silence at each chunk's edges is trimmed, loudness is evened out, and the chunks are joined with a 0.3 s pause between sentences and 0.8 s between paragraphs. Where a long sentence had to be split, the pause is only 0.08 s. |
-| Denoise | MOSS-TTS leaves a faint low rumble and a voice-pitched buzz in pauses. With **Denoise** on (the default), a 60 Hz high-pass and spectral noise reduction ([noisereduce](https://github.com/timsainb/noisereduce)) remove it, using a noise sample taken from the narration's own pauses. On a 12-minute test narration, pause noise fell from −61 to −75 dBFS while the voice changed by about 1 dB. |
 | Crash safety | If something fails partway through (for example, the GPU runs out of memory), the chunks already finished are still saved as a partial file, so a long run is never lost entirely. |
 
 Settings use the upstream recommended decoding values for the 8B model (temperature 1.7, top-p 0.8, top-k 25). You can change them under **Generation Settings**, and chunk size and pauses under **Generation Settings → Long text**.
