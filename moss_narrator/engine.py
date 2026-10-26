@@ -33,6 +33,9 @@ from .text_chunker import Chunk, chunk_narration
 
 logger = logging.getLogger(__name__)
 
+# Any intro music MOSS-TTS adds to an unguided take sits in its first ~2 s (measured: gone by 2 s).
+PRIMER_SKIP_S = 2.0
+
 ProgressCallback = Callable[[int, int, str], None]
 
 
@@ -157,6 +160,23 @@ class MossNarrator:
             note = f"Voice sample is {len(wav) / self.sample_rate:.0f}s; using the first {len(clipped) / self.sample_rate:.0f}s."
         return self.encode_reference(clipped), note
 
+    def _prime_voice(self, text: str, lang: str | None, settings: NarrationSettings):
+        """Warm-up take to pick the narrator voice before any real chunk is generated.
+
+        With no voice to follow, MOSS-TTS sometimes opens with a podcast-style music sting.
+        Skipping the first seconds of a throwaway take and using the rest as the reference
+        means every real chunk is voice-guided, so none starts with intro music.
+        Returns None (fall back to locking on chunk 1) if the take is unusable.
+        """
+        try:
+            audio, warning = self.synthesize_checked(text, None, lang, settings)
+        except NoAudioError:
+            return None
+        if warning is not None:
+            return None
+        skip = min(int(PRIMER_SKIP_S * self.sample_rate), len(audio) // 3)
+        return self.encode_reference(cut_at_quiet(audio[skip:], self.sample_rate, settings.voice_lock_max_s))
+
     def narrate(
         self,
         text: str,
@@ -196,6 +216,10 @@ class MossNarrator:
         warnings: list[str],
     ) -> tuple[list[tuple[Chunk, np.ndarray]], bool]:
         rendered: list[tuple[Chunk, np.ndarray]] = []
+        if reference_codes is None and settings.voice_lock:
+            if on_progress:
+                on_progress(0, len(chunks), "(warm-up take to choose the voice)")
+            reference_codes = self._prime_voice(chunks[0].text, lang, settings)
         lock_voice = reference_codes is None and settings.voice_lock
         for index, chunk in enumerate(chunks):
             if on_progress:

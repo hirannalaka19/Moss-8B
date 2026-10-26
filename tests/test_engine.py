@@ -48,13 +48,28 @@ def test_narrate_stitches_chunks_with_paragraph_gap():
     assert result.duration_s == pytest.approx(pieces + 1.0, abs=0.3)
 
 
-def test_voice_lock_reuses_first_chunk_voice():
+def test_warm_up_take_guides_every_chunk_including_the_first():
     narrator = FakeNarrator()
     narrator.narrate(TEXT, settings=NarrationSettings(voice_lock_max_s=1.0))
-    assert narrator.calls[0][1] is None
-    assert narrator.calls[1][1] == "codes#1"
+    first_chunk = TEXT.splitlines()[0]
+    assert narrator.calls[0] == (first_chunk, None, None)  # warm-up: the only unguided take
+    assert [ref for _, ref, _ in narrator.calls[1:]] == ["codes#1", "codes#1"]
     assert len(narrator.encoded) == 1
     assert narrator.encoded[0] <= SR  # capped at voice_lock_max_s
+
+
+def test_warm_up_skips_the_opening_seconds_where_intro_music_sits():
+    narrator = FakeNarrator()
+    narrator.narrate(TEXT, settings=NarrationSettings(voice_lock_max_s=60.0))
+    warm_up_len = int(expected_seconds(TEXT.splitlines()[0]) * SR)
+    skipped = warm_up_len - narrator.encoded[0]
+    assert skipped >= min(2 * SR, warm_up_len // 3) - SR // 5  # minus silence-trim slack
+
+
+def test_no_warm_up_without_voice_lock():
+    narrator = FakeNarrator()
+    narrator.narrate(TEXT, settings=NarrationSettings(voice_lock=False))
+    assert len(narrator.calls) == 2 and narrator.encoded == []
 
 
 def test_reference_audio_is_encoded_once_and_used_everywhere(monkeypatch):
@@ -92,7 +107,7 @@ def test_raises_when_model_never_returns_audio():
 def test_progress_callback_reports_every_chunk():
     events = []
     FakeNarrator().narrate(TEXT, on_progress=lambda done, total, text: events.append((done, total)))
-    assert events == [(0, 2), (1, 2), (2, 2)]
+    assert events == [(0, 2), (0, 2), (1, 2), (2, 2)]  # warm-up, chunk 1, chunk 2, done
 
 
 def test_empty_text_rejected():
@@ -116,7 +131,7 @@ class CrashingNarrator(FakeNarrator):
 
 
 def test_crash_mid_job_returns_finished_chunks_as_partial():
-    result = CrashingNarrator(crash_on_call=3).narrate(THREE, settings=NarrationSettings(max_retries=0))
+    result = CrashingNarrator(crash_on_call=4).narrate(THREE, settings=NarrationSettings(max_retries=0))  # call 1 = warm-up
     assert result.complete is False
     assert any("Stopped at chunk 3/3" in w for w in result.warnings)
     assert result.duration_s > 0
@@ -128,16 +143,22 @@ def test_crash_on_first_chunk_propagates():
 
 
 def test_chunk_with_no_audio_is_skipped_with_warning():
-    narrator = FakeNarrator(length_factors=[1.0, None, 1.0])
+    narrator = FakeNarrator(length_factors=[1.0, 1.0, None, 1.0])  # warm-up, chunk 1, chunk 2 (fails), chunk 3
     result = narrator.narrate(THREE, settings=NarrationSettings(max_retries=0))
     assert result.complete is True
     assert any("Skipped chunk 2" in w for w in result.warnings)
 
 
-def test_voice_lock_waits_for_a_clean_chunk():
-    narrator = FakeNarrator(length_factors=[6.0, 1.0, 1.0])
+def test_bad_warm_up_falls_back_to_locking_on_first_clean_chunk():
+    narrator = FakeNarrator(length_factors=[6.0, 1.0, 1.0, 1.0])  # warm-up timing is off -> discarded
     narrator.narrate(THREE, settings=NarrationSettings(max_retries=0))
-    assert [ref for _, ref, _ in narrator.calls] == [None, None, "codes#1"]
+    assert [ref for _, ref, _ in narrator.calls] == [None, None, "codes#1", "codes#1"]
+
+
+def test_warm_up_with_no_audio_falls_back_too():
+    narrator = FakeNarrator(length_factors=[None, 1.0, 1.0, 1.0])
+    result = narrator.narrate(THREE, settings=NarrationSettings(max_retries=0))
+    assert result.complete and [ref for _, ref, _ in narrator.calls] == [None, None, "codes#1", "codes#1"]
 
 
 def test_long_reference_is_capped(monkeypatch):

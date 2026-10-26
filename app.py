@@ -159,7 +159,7 @@ def _gen_settings(show_voice_lock: bool):
             s_pause = gr.Slider(0.0, 2.0, value=DEFAULTS.sentence_gap_s, step=0.05, label="Pause between sentences (seconds)")
             p_pause = gr.Slider(0.0, 4.0, value=DEFAULTS.paragraph_gap_s, step=0.1, label="Pause between paragraphs (seconds)")
             lock = gr.Checkbox(value=DEFAULTS.voice_lock, visible=show_voice_lock, label="Keep the same voice for the whole script",
-                               info="Reuses the voice of the first chunk for every following chunk.")
+                               info="Makes a short warm-up take to pick the voice, then reads every chunk in it. This also stops MOSS-TTS adding intro music.")
     return [fmt, temp, top_p, top_k, rep, seed, chunk, s_pause, p_pause, lock]
 
 
