@@ -1,0 +1,67 @@
+# 🎙️ MOSS-TTS-v1.5 (8B) Narrator for Google Colab
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/GITHUB_USER/moss-tts-narrator/blob/main/MOSS_TTS_Narrator.ipynb)
+
+Paste a full narration script, click a button, and download **one** audio file (MP3 or WAV).
+It runs [OpenMOSS **MOSS-TTS-v1.5**](https://github.com/OpenMOSS/MOSS-TTS), the 8B model (`OpenMOSS-Team/MOSS-TTS-v1.5`), on a Colab A100.
+
+## Quick start
+
+1. Click **Open in Colab** above.
+2. **Runtime → Change runtime type → A100 GPU**. This needs Colab Pro or Pay As You Go; the free T4 is too small for the 8B model.
+3. **Runtime → Run all**. The first run downloads about 24 GB of weights, which takes 5 to 10 minutes.
+4. Paste your text in the box at the bottom, pick a language (or leave it on **Auto**), and click **Generate narration**.
+5. When it finishes, the file downloads automatically. It is also saved in `/content/narrations/`.
+
+**Optional voice cloning:** in step 3 of the notebook, tick `clone_voice` before you click Run all, then upload 5 to 30 seconds of clean speech (wav, mp3 or m4a).
+
+## How it works
+
+| Step | What happens |
+|---|---|
+| Chunking | The text is split by paragraph, then sentences are grouped into chunks of about 500 characters (roughly 35 s of speech). Very long sentences are split at commas, then at words. Chinese, Japanese and Korean text is supported. |
+| Voice consistency | If you upload a voice sample, it is encoded once and used for every chunk. Without a sample, chunk 1 is generated in the model's own voice, and that voice is reused for every later chunk so the whole narration sounds like one speaker. |
+| Quality checks | If a chunk's length doesn't match its text (cut short, or running on), it is regenerated, up to 2 retries. |
+| Stitching | Silence at each chunk's edges is trimmed, loudness is evened out, and the chunks are joined with a 0.3 s pause between sentences and 0.8 s between paragraphs. Where a long sentence had to be split, the pause is only 0.08 s. |
+| Crash safety | If something fails partway through (for example, the GPU runs out of memory), the chunks already finished are still saved as a partial file, so a long run is never lost entirely. |
+
+Settings use the upstream recommended decoding values for the 8B model (temperature 1.7, top-p 0.8, top-k 25). You can change them under **Advanced settings**.
+
+### Tips
+
+- MOSS-TTS-v1.5 understands inline pauses such as `[pause 1.5s]`.
+- For languages other than Chinese or English, pick the language from the dropdown. Upstream recommends a language tag for v1.5.
+- Blank lines between paragraphs become longer pauses.
+- Speed on an A100 is very roughly real-time or a little slower, so a 10-minute narration takes about 10 to 20 minutes. The progress bar shows each chunk as it's done.
+
+## Requirements
+
+| GPU | Works? |
+|---|---|
+| A100 40/80 GB, H100 | ✅ |
+| L4 (24 GB), T4 (15 GB) | ❌ The 8B model in bf16 (~17 GB) plus its audio codec (~7 GB) needs about 25 GB. The notebook stops with a message telling you to switch to an A100. |
+
+## Repository layout
+
+```
+MOSS_TTS_Narrator.ipynb     Colab notebook (the "button")
+moss_narrator/
+  text_chunker.py           paragraph, sentence and clause chunking
+  planning.py               settings, token budgets, duration checks, GPU check
+  audio_utils.py            ffmpeg load, trim, loudness, stitch, MP3/WAV export
+  engine.py                 MOSS-TTS model loading, retries, voice lock, narration
+  colab_ui.py               ipywidgets form (text box, Generate button, download)
+tests/                      pytest suite (runs on CPU, no model needed)
+```
+
+## Development
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest --cov=moss_narrator
+```
+
+## Credits and license
+
+- Model: [OpenMOSS/MOSS-TTS](https://github.com/OpenMOSS/MOSS-TTS), Apache-2.0. Check the model license before commercial use, and don't clone anyone's voice without their consent.
+- This wrapper: MIT (see `LICENSE`).
