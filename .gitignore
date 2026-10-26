@@ -7,3 +7,4 @@ htmlcov/
 *.wav
 *.mp3
 narrations/
+generated_audio/
