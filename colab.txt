@@ -7,3 +7,4 @@ einops>=0.8.1
 tiktoken>=0.12.0
 orjson>=3.11.4
 gradio==5.50.0
+noisereduce==3.0.3

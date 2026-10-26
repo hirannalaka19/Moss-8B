@@ -12,6 +12,7 @@ import numpy as np
 from .audio_utils import (
     apply_edge_fades,
     cut_at_quiet,
+    denoise,
     load_audio_mono,
     normalize_loudness,
     soft_limit,
@@ -183,7 +184,10 @@ class MossNarrator:
 
         rendered, complete = self._render_chunks(chunks, reference_codes, lang, settings, on_progress, warnings)
         gaps = [_gap_after(chunk, settings) for chunk, _ in rendered[:-1]]
-        audio = soft_limit(stitch([wav for _, wav in rendered], gaps, self.sample_rate))
+        audio = stitch([wav for _, wav in rendered], gaps, self.sample_rate)
+        if settings.denoise:
+            audio = denoise(audio, self.sample_rate)
+        audio = soft_limit(audio)
         return NarrationResult(audio, self.sample_rate, len(chunks), tuple(warnings), complete)
 
     def _render_chunks(

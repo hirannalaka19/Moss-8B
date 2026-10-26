@@ -9,6 +9,14 @@ from moss_narrator.planning import NarrationSettings, expected_seconds
 SR = 24000
 
 
+@pytest.fixture(autouse=True)
+def no_real_denoise(monkeypatch):
+    """Engine tests cover orchestration; the real denoiser is tested in test_audio_utils."""
+    calls = []
+    monkeypatch.setattr("moss_narrator.engine.denoise", lambda wav, sr: calls.append(len(wav)) or wav * 0.5)
+    return calls
+
+
 def speech(seconds: float) -> np.ndarray:
     t = np.arange(int(seconds * SR)) / SR
     return (0.3 * np.sin(2 * np.pi * 180 * t)).astype(np.float32)
@@ -156,3 +164,13 @@ def test_mid_sentence_chunks_use_short_gap():
     assert _gap_after(Chunk("a", ends_paragraph=False, ends_sentence=False), settings) == settings.mid_sentence_gap_s
     assert _gap_after(Chunk("a", ends_paragraph=False), settings) == settings.sentence_gap_s
     assert _gap_after(Chunk("a", ends_paragraph=True), settings) == settings.paragraph_gap_s
+
+
+def test_denoise_runs_once_on_the_stitched_narration(no_real_denoise):
+    FakeNarrator().narrate(TEXT)
+    assert len(no_real_denoise) == 1
+
+
+def test_denoise_can_be_switched_off(no_real_denoise):
+    FakeNarrator().narrate(TEXT, settings=NarrationSettings(denoise=False))
+    assert no_real_denoise == []

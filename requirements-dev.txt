@@ -1,3 +1,5 @@
 numpy>=1.26
 pytest>=8
 pytest-cov>=5
+scipy>=1.11
+noisereduce==3.0.3

@@ -8,6 +8,8 @@ from moss_narrator.audio_utils import (
     PEAK_CEILING,
     apply_edge_fades,
     cut_at_quiet,
+    denoise,
+    quiet_passages,
     load_audio_mono,
     normalize_loudness,
     save_audio,
@@ -123,3 +125,47 @@ def test_mp3_export_and_load_resamples(tmp_path):
     loaded = load_audio_mono(path, 16000)
     assert loaded.dtype == np.float32
     assert abs(len(loaded) / 16000 - 1.0) < 0.1
+
+
+def narration_with_hiss(seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    """Alternating 'speech' bursts and pauses, all over a constant hiss floor; returns (audio, pause mask)."""
+    rng = np.random.default_rng(seed)
+    pattern = [(1.2, True), (0.4, False)] * 6
+    parts, mask = [], []
+    for seconds, voiced in pattern:
+        n = int(seconds * SR)
+        t = np.arange(n) / SR
+        voice = 0.3 * np.sin(2 * np.pi * 180 * t) * np.sin(np.pi * t / seconds) if voiced else np.zeros(n)
+        parts.append(voice + 0.002 * rng.standard_normal(n))
+        mask.append(np.full(n, not voiced))
+    return np.concatenate(parts).astype(np.float32), np.concatenate(mask)
+
+
+def level_db(x: np.ndarray) -> float:
+    return float(20 * np.log10(np.sqrt(np.mean(np.asarray(x, np.float64) ** 2)) + 1e-12))
+
+
+def test_quiet_passages_finds_model_pauses_but_not_digital_silence():
+    wav, _ = narration_with_hiss()
+    wav = np.concatenate([wav, np.zeros(SR, np.float32)])
+    runs = quiet_passages(wav, SR)
+    assert len(runs) >= 5
+    assert all(b <= len(wav) - SR for _, b in runs)  # the appended digital silence is never used
+
+
+def test_denoise_lowers_pause_noise_and_keeps_speech():
+    pytest.importorskip("noisereduce")
+    wav, pauses = narration_with_hiss()
+    out = denoise(wav, SR)
+    assert out.dtype == np.float32 and len(out) == len(wav)
+    assert level_db(out[pauses]) < level_db(wav[pauses]) - 10
+    assert abs(level_db(out[~pauses]) - level_db(wav[~pauses])) < 1.5
+
+
+def test_denoise_without_pauses_only_high_passes():
+    pytest.importorskip("scipy")
+    t = np.arange(2 * SR) / SR
+    wav = (0.3 * np.sin(2 * np.pi * 200 * t) + 0.3 * np.sin(2 * np.pi * 20 * t)).astype(np.float32)
+    out = denoise(wav, SR)
+    spectrum = np.abs(np.fft.rfft(out[SR // 2: SR // 2 + SR]))
+    assert spectrum[20] < spectrum[200] * 0.2  # 20 Hz rumble removed, 200 Hz tone kept

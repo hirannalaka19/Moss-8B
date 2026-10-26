@@ -3,4 +3,5 @@
 torch>=2.8.0
 torchaudio>=2.8.0
 numpy
+scipy
 -r colab.txt
