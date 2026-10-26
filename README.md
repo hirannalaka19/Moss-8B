@@ -1,6 +1,6 @@
 # 🎙️ MOSS-TTS-v1.5 (8B) Narrator for Google Colab
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/GITHUB_USER/moss-tts-narrator/blob/main/MOSS_TTS_Narrator.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hirannalaka19/Moss-8B/blob/main/MOSS_TTS_Narrator.ipynb)
 
 Paste a full narration script, click a button, and download **one** audio file (MP3 or WAV).
 It runs [OpenMOSS **MOSS-TTS-v1.5**](https://github.com/OpenMOSS/MOSS-TTS), the 8B model (`OpenMOSS-Team/MOSS-TTS-v1.5`), on a Colab A100.
