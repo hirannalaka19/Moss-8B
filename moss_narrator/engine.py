@@ -73,8 +73,8 @@ class MossNarrator:
         from transformers import AutoModel, AutoProcessor
 
         cuda = torch.cuda.is_available()
-        vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3 if cuda else 0.0
-        check_gpu(cuda, vram_gb)
+        free_bytes, total_bytes = torch.cuda.mem_get_info() if cuda else (0, 0)
+        check_gpu(cuda, total_bytes / 1024**3, free_bytes / 1024**3)
         _configure_torch_backends(torch)
 
         logger.info("Loading processor + audio codec from %s", model_id)

@@ -64,6 +64,12 @@ def test_check_gpu_requires_a100_class_memory():
         check_gpu(True, 15.0)
 
 
+def test_check_gpu_reports_memory_held_by_another_process():
+    check_gpu(True, 39.5, free_gb=39.0)
+    with pytest.raises(RuntimeError, match="Restart session"):
+        check_gpu(True, 39.5, free_gb=16.0)
+
+
 def test_settings_are_immutable():
     settings = NarrationSettings()
     with pytest.raises(AttributeError):

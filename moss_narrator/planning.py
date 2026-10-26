@@ -14,6 +14,8 @@ AUDIO_TOKENS_PER_SECOND = 12.5
 CJK_TOKENS_PER_CHAR = 3.098
 LATIN_TOKENS_PER_CHAR = 0.867
 MIN_VRAM_GB = 30.0
+# bf16 model (~17 GB) + fp32 codec (~7 GB) + headroom for activations and KV cache.
+MIN_FREE_VRAM_GB = 26.0
 MAX_NEW_TOKENS_CAP = 4096
 # Longer voice samples only slow every chunk's prompt down without improving similarity.
 REFERENCE_MAX_S = 30.0
@@ -89,8 +91,13 @@ def language_tag(choice: str | None) -> str | None:
     return choice
 
 
-def check_gpu(cuda_available: bool, vram_gb: float) -> None:
+def check_gpu(cuda_available: bool, vram_gb: float, free_gb: float | None = None) -> None:
     if not cuda_available:
         raise RuntimeError("No GPU detected. " + GPU_HELP)
     if vram_gb < MIN_VRAM_GB:
         raise RuntimeError(f"This GPU has {vram_gb:.0f} GB, not enough. " + GPU_HELP)
+    if free_gb is not None and free_gb < MIN_FREE_VRAM_GB:
+        raise RuntimeError(
+            f"Only {free_gb:.0f} of {vram_gb:.0f} GB GPU memory is free; another process (often an earlier "
+            "run of the app) is using the rest. In Colab: Runtime > Restart session, then run the cells again."
+        )
