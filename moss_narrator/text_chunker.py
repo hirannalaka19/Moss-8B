@@ -13,7 +13,8 @@ from dataclasses import dataclass
 # CJK characters carry ~3.5x more speech per character than Latin text
 # (MOSS-TTS reference app: 3.10 vs 0.87 audio tokens per character).
 CJK_CHAR_WEIGHT = 3
-DEFAULT_MAX_CHUNK_WEIGHT = 500
+# ~900 Latin chars ≈ 60 s of speech: fewer joins, and MOSS-TTS stays stable at this length.
+DEFAULT_MAX_CHUNK_WEIGHT = 900
 
 CJK_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uff66-\uff9f]")
 _PARAGRAPH_RE = re.compile(r"\n\s*\n")

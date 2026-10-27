@@ -130,9 +130,9 @@ def make_generate_fn(narrator: MossNarrator, clone: bool):
     return generate
 
 
-def _lang_dropdown(label="Language (optional)", value="Auto"):
+def _lang_dropdown(label="Language", value="English"):
     return gr.Dropdown(label=label, choices=list(LANGUAGES), value=value, allow_custom_value=False,
-                       interactive=True, info="Auto works for English and Chinese. Pick the language for others.")
+                       interactive=True, info="Set this to the language of your script. MOSS-TTS v1.5 recommends a language tag.")
 
 
 def _tag_buttons(textbox: gr.Textbox, elem_id: str) -> None:

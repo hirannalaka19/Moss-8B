@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from .text_chunker import CJK_RE
+from .text_chunker import CJK_RE, DEFAULT_MAX_CHUNK_WEIGHT
 
 MODEL_ID = "OpenMOSS-Team/MOSS-TTS-v1.5"
 SAMPLE_RATE = 24000
@@ -37,7 +37,7 @@ LANGUAGES = (
 
 @dataclass(frozen=True)
 class NarrationSettings:
-    max_chunk_weight: int = 500
+    max_chunk_weight: int = DEFAULT_MAX_CHUNK_WEIGHT
     sentence_gap_s: float = 0.30
     mid_sentence_gap_s: float = 0.08
     paragraph_gap_s: float = 0.80

@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 
 # Any intro music MOSS-TTS adds to an unguided take sits in its first ~2 s (measured: gone by 2 s).
 PRIMER_SKIP_S = 2.0
+# The warm-up only needs a sentence or two (~15 s) to fix the voice, not a whole ~60 s chunk.
+PRIMER_MAX_WEIGHT = 250
 
 ProgressCallback = Callable[[int, int, str], None]
 
@@ -90,7 +92,10 @@ class MossNarrator:
             trust_remote_code=True,
             attn_implementation="sdpa",
             dtype=torch.bfloat16,
-        ).to("cuda")
+            # Stream weights straight onto the GPU: peak system RAM stays ~8 GB (codec only)
+            # instead of ~25 GB, so a standard-RAM A100 runtime is enough.
+            device_map="cuda",
+        )
         model.eval()
         sample_rate = int(getattr(processor.model_config, "sampling_rate", SAMPLE_RATE))
         return cls(model, processor, sample_rate)
@@ -219,7 +224,8 @@ class MossNarrator:
         if reference_codes is None and settings.voice_lock:
             if on_progress:
                 on_progress(0, len(chunks), "(warm-up take to choose the voice)")
-            reference_codes = self._prime_voice(chunks[0].text, lang, settings)
+            primer_text = chunk_narration(chunks[0].text, PRIMER_MAX_WEIGHT)[0].text
+            reference_codes = self._prime_voice(primer_text, lang, settings)
         lock_voice = reference_codes is None and settings.voice_lock
         for index, chunk in enumerate(chunks):
             if on_progress:

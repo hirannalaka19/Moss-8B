@@ -8,7 +8,7 @@ It runs [OpenMOSS **MOSS-TTS-v1.5**](https://github.com/OpenMOSS/MOSS-TTS), the 
 ## 🚀 How to use
 
 1. Click the **Open In Colab** badge above.
-2. Set the runtime to an **A100 GPU**: `Runtime → Change runtime type → A100 GPU`. This needs Colab Pro or Pay As You Go; T4 and L4 are too small for the 8B model.
+2. Set the runtime to an **A100 GPU**: `Runtime → Change runtime type → A100 GPU`. This needs Colab Pro or Pay As You Go; T4 and L4 are too small for the 8B model. High-RAM is not needed: weights load straight onto the GPU, so peak system RAM is about 8 GB.
 3. **One-time:** add your Hugging Face token to Colab **Secrets**. Click the 🔑 icon in the left sidebar → *Add new secret* → Name: `HF_TOKEN`, Value: your token (create a free *Read* token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)) → enable *Notebook access*. Without it, downloads are throttled.
 4. Run the **Install MOSS-TTS** cell.
 5. Run the **Run Gradio APP** cell. The first run downloads about 24 GB of weights (5 to 10 minutes). Then open the public `*.gradio.live` link.
@@ -26,7 +26,7 @@ Click the `[pause 0.5s]` … `[pause 3.0s]` buttons to insert a pause at the cur
 
 | Step | What happens |
 |---|---|
-| Chunking | The text is split by paragraph, then sentences are grouped into chunks of about 500 characters (roughly 35 s of speech). Very long sentences are split at commas, then at words. Chinese, Japanese and Korean text is supported. |
+| Chunking | The text is split by paragraph, then sentences are grouped into chunks of about 900 characters (roughly 60 s of speech, adjustable under Generation Settings → Long text). Very long sentences are split at commas, then at words. Chinese, Japanese and Korean text is supported. |
 | Voice consistency | If you upload a voice sample, it is encoded once and used for every chunk. Without a sample, chunk 1 is generated in the model's own voice, and that voice is reused for every later chunk so the whole narration sounds like one speaker. |
 | Quality checks | If a chunk's length doesn't match its text (cut short, or running on), it is regenerated, up to 2 retries. |
 | Stitching | Silence at each chunk's edges is trimmed, loudness is evened out, and the chunks are joined with a 0.3 s pause between sentences and 0.8 s between paragraphs. Where a long sentence had to be split, the pause is only 0.08 s. |

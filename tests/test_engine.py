@@ -177,3 +177,12 @@ def test_mid_sentence_chunks_use_short_gap():
     assert _gap_after(Chunk("a", ends_paragraph=False, ends_sentence=False), settings) == settings.mid_sentence_gap_s
     assert _gap_after(Chunk("a", ends_paragraph=False), settings) == settings.sentence_gap_s
     assert _gap_after(Chunk("a", ends_paragraph=True), settings) == settings.paragraph_gap_s
+
+
+def test_warm_up_reads_only_the_opening_sentences_of_a_long_first_chunk():
+    long_paragraph = " ".join(f"Sentence number {i} keeps the story moving forward." for i in range(15))
+    narrator = FakeNarrator()
+    narrator.narrate(long_paragraph)
+    warm_up_text = narrator.calls[0][0]
+    assert len(warm_up_text) <= 250 and long_paragraph.startswith(warm_up_text)
+    assert narrator.calls[1][0] != warm_up_text  # the real chunk 1 is the full first chunk
