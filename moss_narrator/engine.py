@@ -46,6 +46,14 @@ class NoAudioError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class ContinuationPrefix:
+    """Audio already 'spoken' (with its transcript) that the next generation continues from."""
+
+    text: str
+    codes: object
+
+
+@dataclass(frozen=True)
 class NarrationResult:
     audio: np.ndarray
     sample_rate: int
@@ -107,13 +115,28 @@ class MossNarrator:
         tensor = torch.from_numpy(np.ascontiguousarray(wav, dtype=np.float32)).unsqueeze(0)
         return self._processor.encode_audios_from_wav([tensor], self.sample_rate)[0]
 
-    def synthesize(self, text: str, reference_codes, language: str | None, settings: NarrationSettings) -> np.ndarray | None:
-        """Generate one chunk. Returns None when the model produced no audio."""
+    def synthesize(
+        self,
+        text: str,
+        reference_codes,
+        language: str | None,
+        settings: NarrationSettings,
+        prefix: ContinuationPrefix | None = None,
+    ) -> np.ndarray | None:
+        """Generate one chunk. Returns None when the model produced no audio.
+
+        With a prefix this is MOSS-TTS 'continuation' mode (as in the upstream app's
+        Continuation + Clone): the prefix transcript goes before the text, the prefix
+        audio is the assistant turn, and only the newly generated audio is returned.
+        """
         import torch
 
         reference = [reference_codes] if reference_codes is not None else None
-        message = self._processor.build_user_message(text=text, reference=reference, language=language)
-        batch = self._processor([[message]], mode="generation")
+        user_text = f"{prefix.text} {text}" if prefix else text
+        conversation = [self._processor.build_user_message(text=user_text, reference=reference, language=language)]
+        if prefix:
+            conversation.append(self._processor.build_assistant_message(audio_codes_list=[prefix.codes]))
+        batch = self._processor([conversation], mode="continuation" if prefix else "generation")
         with torch.no_grad():
             outputs = self._model.generate(
                 input_ids=batch["input_ids"].to("cuda"),
@@ -135,13 +158,18 @@ class MossNarrator:
         return apply_edge_fades(normalize_loudness(trimmed), self.sample_rate)
 
     def synthesize_checked(
-        self, text: str, reference_codes, language: str | None, settings: NarrationSettings
+        self,
+        text: str,
+        reference_codes,
+        language: str | None,
+        settings: NarrationSettings,
+        prefix: ContinuationPrefix | None = None,
     ) -> tuple[np.ndarray, str | None]:
         """Retry truncated/runaway generations; keep the closest attempt if all fail."""
         best: np.ndarray | None = None
         best_score = float("inf")
         for attempt in range(settings.max_retries + 1):
-            raw = self.synthesize(text, reference_codes, language, settings)
+            raw = self.synthesize(text, reference_codes, language, settings, prefix)
             if raw is None or raw.size == 0:
                 logger.warning("Attempt %d produced no audio", attempt + 1)
                 continue
@@ -165,22 +193,28 @@ class MossNarrator:
             note = f"Voice sample is {len(wav) / self.sample_rate:.0f}s; using the first {len(clipped) / self.sample_rate:.0f}s."
         return self.encode_reference(clipped), note
 
-    def _prime_voice(self, text: str, lang: str | None, settings: NarrationSettings):
-        """Warm-up take to pick the narrator voice before any real chunk is generated.
+    def _warm_up(
+        self, text: str, reference_codes, lang: str | None, settings: NarrationSettings
+    ) -> tuple[object, ContinuationPrefix | None]:
+        """Throwaway take of the opening sentences, read before the real chunk 1.
 
-        With no voice to follow, MOSS-TTS sometimes opens with a podcast-style music sting.
-        Skipping the first seconds of a throwaway take and using the rest as the reference
-        means every real chunk is voice-guided, so none starts with intro music.
-        Returns None (fall back to locking on chunk 1) if the take is unusable.
+        MOSS-TTS can treat a story's first line as a show opening and put a music/bass
+        hit under the first second (measured: only ever at the start of the file).
+        Chunk 1 is then generated as a *continuation* of this take, so it starts
+        mid-recording and the intro hit, if any, stays in the discarded take.
+        Without a voice sample, the take (minus its first seconds) also becomes the
+        voice reference for every chunk. Unusable take -> (reference_codes, None).
         """
         try:
-            audio, warning = self.synthesize_checked(text, None, lang, settings)
+            audio, warning = self.synthesize_checked(text, reference_codes, lang, settings)
         except NoAudioError:
-            return None
+            return reference_codes, None
         if warning is not None:
-            return None
-        skip = min(int(PRIMER_SKIP_S * self.sample_rate), len(audio) // 3)
-        return self.encode_reference(cut_at_quiet(audio[skip:], self.sample_rate, settings.voice_lock_max_s))
+            return reference_codes, None
+        if reference_codes is None:
+            skip = min(int(PRIMER_SKIP_S * self.sample_rate), len(audio) // 3)
+            reference_codes = self.encode_reference(cut_at_quiet(audio[skip:], self.sample_rate, settings.voice_lock_max_s))
+        return reference_codes, ContinuationPrefix(text, self.encode_reference(audio))
 
     def narrate(
         self,
@@ -221,17 +255,19 @@ class MossNarrator:
         warnings: list[str],
     ) -> tuple[list[tuple[Chunk, np.ndarray]], bool]:
         rendered: list[tuple[Chunk, np.ndarray]] = []
-        if reference_codes is None and settings.voice_lock:
+        prefix = None
+        if reference_codes is not None or settings.voice_lock:
             if on_progress:
-                on_progress(0, len(chunks), "(warm-up take to choose the voice)")
+                on_progress(0, len(chunks), "(warm-up take)")
             primer_text = chunk_narration(chunks[0].text, PRIMER_MAX_WEIGHT)[0].text
-            reference_codes = self._prime_voice(primer_text, lang, settings)
+            reference_codes, prefix = self._warm_up(primer_text, reference_codes, lang, settings)
         lock_voice = reference_codes is None and settings.voice_lock
         for index, chunk in enumerate(chunks):
             if on_progress:
                 on_progress(index, len(chunks), chunk.text)
             try:
-                audio, warning = self.synthesize_checked(chunk.text, reference_codes, lang, settings)
+                chunk_prefix = prefix if index == 0 else None
+                audio, warning = self.synthesize_checked(chunk.text, reference_codes, lang, settings, chunk_prefix)
             except NoAudioError as error:
                 warnings.append(f"Skipped chunk {index + 1}: {error}")
                 continue

@@ -21,10 +21,12 @@ class FakeNarrator(MossNarrator):
         super().__init__(model=None, processor=None, sample_rate=SR)
         self.length_factors = list(length_factors or [])
         self.calls = []
+        self.prefixes = []
         self.encoded = []
 
-    def synthesize(self, text, reference_codes, language, settings):
+    def synthesize(self, text, reference_codes, language, settings, prefix=None):
         self.calls.append((text, reference_codes, language))
+        self.prefixes.append(prefix)
         factor = self.length_factors.pop(0) if self.length_factors else 1.0
         if factor is None:
             return None
@@ -54,8 +56,8 @@ def test_warm_up_take_guides_every_chunk_including_the_first():
     first_chunk = TEXT.splitlines()[0]
     assert narrator.calls[0] == (first_chunk, None, None)  # warm-up: the only unguided take
     assert [ref for _, ref, _ in narrator.calls[1:]] == ["codes#1", "codes#1"]
-    assert len(narrator.encoded) == 1
-    assert narrator.encoded[0] <= SR  # capped at voice_lock_max_s
+    assert len(narrator.encoded) == 2  # voice reference + continuation prefix
+    assert narrator.encoded[0] <= SR  # reference capped at voice_lock_max_s
 
 
 def test_warm_up_skips_the_opening_seconds_where_intro_music_sits():
@@ -76,9 +78,9 @@ def test_reference_audio_is_encoded_once_and_used_everywhere(monkeypatch):
     monkeypatch.setattr("moss_narrator.engine.load_audio_mono", lambda path, sr: speech(3.0))
     narrator = FakeNarrator()
     result = narrator.narrate(TEXT, reference_audio="voice.wav", language="English")
-    assert narrator.encoded == [3 * SR]
+    assert narrator.encoded[0] == 3 * SR and len(narrator.encoded) == 2  # sample + warm-up prefix
     assert result.warnings == ()
-    assert [ref for _, ref, _ in narrator.calls] == ["codes#1", "codes#1"]
+    assert [ref for _, ref, _ in narrator.calls] == ["codes#1", "codes#1", "codes#1"]  # warm-up + 2 chunks
     assert {lang for _, _, lang in narrator.calls} == {"English"}
 
 
@@ -123,11 +125,11 @@ class CrashingNarrator(FakeNarrator):
         super().__init__()
         self.crash_on_call = crash_on_call
 
-    def synthesize(self, text, reference_codes, language, settings):
+    def synthesize(self, text, reference_codes, language, settings, prefix=None):
         if len(self.calls) + 1 == self.crash_on_call:
             self.calls.append((text, reference_codes, language))
             raise RuntimeError("CUDA out of memory")
-        return super().synthesize(text, reference_codes, language, settings)
+        return super().synthesize(text, reference_codes, language, settings, prefix)
 
 
 def test_crash_mid_job_returns_finished_chunks_as_partial():
@@ -186,3 +188,25 @@ def test_warm_up_reads_only_the_opening_sentences_of_a_long_first_chunk():
     warm_up_text = narrator.calls[0][0]
     assert len(warm_up_text) <= 250 and long_paragraph.startswith(warm_up_text)
     assert narrator.calls[1][0] != warm_up_text  # the real chunk 1 is the full first chunk
+
+
+def test_chunk_one_continues_from_the_warm_up_take():
+    narrator = FakeNarrator()
+    narrator.narrate(TEXT)
+    warm_up_text = narrator.calls[0][0]
+    warm_up, chunk1, chunk2 = narrator.prefixes
+    assert warm_up is None and chunk2 is None  # only chunk 1 is a continuation
+    assert chunk1.text == warm_up_text and chunk1.codes == "codes#2"
+
+
+def test_voice_clone_also_gets_the_warm_up_continuation(monkeypatch):
+    monkeypatch.setattr("moss_narrator.engine.load_audio_mono", lambda path, sr: speech(3.0))
+    narrator = FakeNarrator()
+    narrator.narrate(TEXT, reference_audio="voice.wav", settings=NarrationSettings(voice_lock=False))
+    assert narrator.prefixes[0] is None and narrator.prefixes[1] is not None
+
+
+def test_no_continuation_when_the_warm_up_take_is_unusable():
+    narrator = FakeNarrator(length_factors=[6.0, 1.0, 1.0, 1.0])
+    narrator.narrate(THREE, settings=NarrationSettings(max_retries=0))
+    assert narrator.prefixes == [None, None, None, None]
